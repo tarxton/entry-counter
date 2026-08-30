@@ -1,0 +1,11 @@
+# ByteTrack tuned for an overhead entrance camera.
+# Differences from the ultralytics default are marked CHANGED.
+
+tracker_type: bytetrack
+track_high_thresh: 0.25   # first-stage matching; detections above this drive new/confident tracks
+track_low_thresh: 0.1     # second-stage recovery; needs count.py to pass --conf 0.1 or lower
+new_track_thresh: 0.25    # a new person must be seen this confidently, so low-score junk cannot spawn tracks
+track_buffer: 60          # CHANGED from 30: keep a lost track alive 2s at 30fps so a person who
+                          # flickers out mid-doorway keeps the same id instead of being re-numbered
+match_thresh: 0.8
+fuse_score: True

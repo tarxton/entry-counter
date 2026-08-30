@@ -1,0 +1,16 @@
+# virtualenv
+.venv/
+__pycache__/
+
+# model weights, downloaded on first run
+*.pt
+
+# recordings and annotated output
+footage/*
+!footage/.gitkeep
+out_*.mp4
+*.mp4
+
+# runtime state: per-gate lines, event logs, heartbeats
+lines/
+data/

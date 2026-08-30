@@ -1,0 +1,4 @@
+ultralytics>=8.3
+supervision>=0.25,<0.31
+opencv-python>=4.10
+lapx>=0.5

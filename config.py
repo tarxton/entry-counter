@@ -1,0 +1,98 @@
+"""Shared paths and defaults for the entry counter.
+
+Everything is keyed by a gate name, so each camera gets its own line, its own
+event log and its own heartbeat, and the processes never touch the same file.
+"""
+
+import json
+from collections import namedtuple
+from pathlib import Path
+
+ROOT = Path(__file__).parent
+FOOTAGE_DIR = ROOT / "footage"
+LINES_DIR = ROOT / "lines"
+DATA_DIR = ROOT / "data"
+
+MODEL = "yolo11n.pt"        # swap to yolo11s.pt if the nano model misses people
+# Deliberately low. ByteTrack's second association pass over low-scoring boxes
+# (track_low_thresh 0.1) is what recovers a person whose detection flickers
+# mid-crossing, and it only sees boxes that survive this filter. New tracks
+# still need new_track_thresh 0.25, so weak boxes extend tracks but never
+# invent people.
+CONF = 0.1
+MIN_CROSSING = 3            # dropped frames tolerated mid-crossing
+TRACKER = "bytetrack.yaml"
+PERSON_CLASS = 0            # COCO class id for "person"
+
+HEARTBEAT_SECONDS = 5       # how often a running counter reports it is alive
+STALE_AFTER_SECONDS = 60    # older than this and status.py calls the gate dead
+
+EVENT_HEADER = ["timestamp", "gate", "direction", "tracker_id", "video_time_s", "frame"]
+
+Line = namedtuple("Line", "start end partial origin")
+
+
+def parse_source(source):
+    """Turn a CLI --source value into something OpenCV/Ultralytics accepts.
+
+    "0" -> webcam index 0, anything else stays a string (file path or URL).
+    """
+    return int(source) if str(source).isdigit() else str(source)
+
+
+def is_live(source):
+    """True for a camera or network stream, False for a video file on disk."""
+    return isinstance(source, int) or str(source).startswith(("rtsp", "http", "udp"))
+
+
+def line_file(gate):
+    return LINES_DIR / f"{gate}.json"
+
+
+def events_file(gate):
+    return DATA_DIR / f"events_{gate}.csv"
+
+
+def heartbeat_file(gate):
+    return DATA_DIR / f"heartbeat_{gate}.json"
+
+
+def save_line(gate, start, end, frame_width, frame_height, partial=False):
+    """Store a gate's counting line together with the resolution it was drawn at.
+
+    partial=True marks a line that deliberately covers only part of the opening
+    (useful when testing, so you can walk back through the uncovered half
+    without it registering). It only suppresses a warning.
+    """
+    LINES_DIR.mkdir(exist_ok=True)
+    line_file(gate).write_text(json.dumps({
+        "start": [int(start[0]), int(start[1])],
+        "end": [int(end[0]), int(end[1])],
+        "width": int(frame_width),
+        "height": int(frame_height),
+        "partial": bool(partial),
+    }, indent=2))
+
+
+def load_line(gate, frame_width, frame_height):
+    """Load a gate's line, rescaled if the footage is a different resolution.
+
+    Falls back to a horizontal line across the middle of the frame. `origin`
+    says which of those happened.
+    """
+    path = line_file(gate)
+    if not path.exists():
+        mid = frame_height // 2
+        return Line((0, mid), (frame_width, mid), False, "default")
+
+    data = json.loads(path.read_text())
+    fx = frame_width / data["width"]
+    fy = frame_height / data["height"]
+    sx, sy = data["start"]
+    ex, ey = data["end"]
+    return Line(
+        (round(sx * fx), round(sy * fy)),
+        (round(ex * fx), round(ey * fy)),
+        bool(data.get("partial", False)),
+        str(path.name),
+    )
