@@ -1,0 +1,7 @@
+# Normalise line endings so scripts work on whatever platform clones this.
+* text=auto
+
+# A shell script with CRLF endings fails on macOS and Linux with a confusing
+# "bad interpreter" error, so pin these regardless of the cloner's git config.
+*.sh text eol=lf
+*.ps1 text eol=crlf
