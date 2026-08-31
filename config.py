@@ -37,7 +37,10 @@ PERSON_CLASS = 0            # COCO class id for "person"
 HEARTBEAT_SECONDS = 5       # how often a running counter reports it is alive
 STALE_AFTER_SECONDS = 60    # older than this and status.py calls the gate dead
 
-EVENT_HEADER = ["timestamp", "gate", "direction", "tracker_id", "video_time_s", "frame"]
+# elapsed_s is wall-clock seconds since the counter started. It is not derived
+# from frame_index, because a live source drops frames to keep up and the two
+# diverge without bound.
+EVENT_HEADER = ["timestamp", "gate", "direction", "tracker_id", "elapsed_s", "frame"]
 
 Line = namedtuple("Line", "start end partial origin")
 
@@ -52,7 +55,20 @@ def parse_source(source):
 
 def is_live(source):
     """True for a camera or network stream, False for a video file on disk."""
-    return isinstance(source, int) or str(source).startswith(("rtsp", "http", "udp"))
+    return isinstance(source, int) or str(source).startswith(
+        ("rtsp", "rtmp", "http", "udp"))
+
+
+def write_json_atomic(path, payload):
+    """Write JSON so a concurrent reader never sees a partial file.
+
+    Path.write_text truncates and then writes, leaving a window in which a
+    reader gets invalid JSON. Writing a sibling temp file and renaming it makes
+    the swap atomic on both POSIX and Windows.
+    """
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def line_file(gate):
@@ -75,13 +91,13 @@ def save_line(gate, start, end, frame_width, frame_height, partial=False):
     without it registering). It only suppresses a warning.
     """
     LINES_DIR.mkdir(exist_ok=True)
-    line_file(gate).write_text(json.dumps({
+    write_json_atomic(line_file(gate), {
         "start": [int(start[0]), int(start[1])],
         "end": [int(end[0]), int(end[1])],
         "width": int(frame_width),
         "height": int(frame_height),
         "partial": bool(partial),
-    }, indent=2))
+    })
 
 
 def load_line(gate, frame_width, frame_height):

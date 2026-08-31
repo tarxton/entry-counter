@@ -215,15 +215,25 @@ the background: no crash, no detections, no counts. A quiet gate and a dead gate
 produce identical numbers.
 
 The counter writes `data/heartbeat_<gate>.json` every 5 seconds, and `status.py`
-marks a gate `STALE` once its heartbeat is older than 60 seconds. Check it
-periodically while the system is running.
+reports one of:
+
+| Health | Meaning |
+|---|---|
+| `ok` | Beating normally |
+| `STALE` | No heartbeat for 60 s — process wedged, or camera unresponsive |
+| `STOPPED` | The counter exited cleanly and is no longer running |
+| `never started` | No heartbeat has ever been written for this gate |
+
+The reported fps covers the interval since the previous heartbeat rather than
+the whole run, so a stream that degrades shows up immediately instead of being
+hidden by a lifetime average. Check it periodically while the system is running.
 
 ### Data written
 
 `data/events_<gate>.csv` records one row per crossing:
 
 ```
-timestamp,gate,direction,tracker_id,video_time_s,frame
+timestamp,gate,direction,tracker_id,elapsed_s,frame
 2026-08-28T14:03:11,main,in,7,412.30,12369
 ```
 
@@ -306,5 +316,5 @@ Two settings reduce the dropouts themselves:
 | `run_gate.ps1` | Start and auto-restart the counter (Windows). |
 | `bytetrack.yaml` | Tracker settings tuned for an overhead camera. |
 | `lines/<gate>.json` | Line, the resolution it was drawn at, the partial flag. |
-| `data/events_<gate>.csv` | One row per crossing. |
+| `data/events_<gate>.csv` | One row per crossing; `elapsed_s` is wall-clock seconds since that counter started. |
 | `data/heartbeat_<gate>.json` | Proof of life: last update, frames, fps. |

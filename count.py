@@ -14,7 +14,7 @@ line, the event log and the heartbeat so the two never touch the same file.
 import argparse
 import csv
 import datetime
-import json
+import math
 import time
 
 import cv2
@@ -72,23 +72,31 @@ def open_event_log(gate):
     return handle, writer
 
 
-def write_heartbeat(gate, source, frames, fps, in_count, out_count):
+def write_heartbeat(gate, source, frames, fps, in_count, out_count, running=True):
     """Proof of life for status.py.
 
     A camera that goes unresponsive is fed black frames by the ultralytics
     loader -- no crash, no detections, no counts. Without a heartbeat that
     failure is indistinguishable from a quiet gate.
+
+    fps is measured over the interval since the previous heartbeat, not
+    averaged over the whole run: a lifetime average barely moves when a stream
+    degrades, which is exactly the case this is meant to surface.
+
+    running=False marks a clean exit, so that a counter which has stopped is
+    not reported as healthy for the whole stale window.
     """
     config.DATA_DIR.mkdir(exist_ok=True)
-    config.heartbeat_file(gate).write_text(json.dumps({
+    config.write_json_atomic(config.heartbeat_file(gate), {
         "gate": gate,
         "source": str(source),
         "updated": datetime.datetime.now().isoformat(timespec="seconds"),
+        "running": running,
         "frames": frames,
         "fps": round(fps, 1),
         "in_since_start": in_count,
         "out_since_start": out_count,
-    }, indent=2))
+    })
 
 
 def main():
@@ -119,7 +127,12 @@ def main():
     if not ok:
         raise SystemExit("could not read a frame from the source")
     height, width = frame.shape[:2]
-    fps = probe.get(cv2.CAP_PROP_FPS) or 30.0
+    fps = probe.get(cv2.CAP_PROP_FPS)
+    if fps is None or not math.isfinite(fps) or fps <= 0:
+        # Variable-frame-rate and malformed containers report 0 or NaN. NaN is
+        # truthy, so it survives a plain `or` and then poisons every derived
+        # value, including the VideoWriter's frame rate.
+        fps = 30.0
     total_frames = 0 if live else int(probe.get(cv2.CAP_PROP_FRAME_COUNT))
     probe.release()
 
@@ -160,13 +173,21 @@ def main():
         if live:
             print("--save-video is only supported for file sources; ignoring.")
         else:
-            writer = cv2.VideoWriter(str(config.ROOT / f"out_{args.gate}.mp4"),
-                                     cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+            out_path = config.ROOT / f"out_{args.gate}.mp4"
+            writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"),
+                                     fps, (width, height))
+            if not writer.isOpened():
+                # VideoWriter does not raise; it returns an object whose write()
+                # is a no-op, leaving a 0-byte file and no indication of failure.
+                raise SystemExit(f"could not open {out_path} for writing - the mp4v "
+                                 f"encoder is unavailable in this OpenCV build. "
+                                 f"Re-run without --save-video.")
 
     handle, event_writer = open_event_log(args.gate)
     frame_index = 0
     started = time.perf_counter()
     last_heartbeat = 0.0
+    frames_at_last_beat = 0
     elapsed = 0.0
 
     try:
@@ -187,7 +208,8 @@ def main():
                 for i in np.flatnonzero(mask):
                     track = int(detections.tracker_id[i])
                     event_writer.writerow([stamp, args.gate, direction, track,
-                                           round(frame_index / fps, 2), frame_index])
+                                           round(time.perf_counter() - started, 2),
+                                           frame_index])
                     handle.flush()
                     print(f"[{args.gate}] {direction:3s} track #{track}  "
                           f"in {line_zone.in_count} out {line_zone.out_count} "
@@ -195,10 +217,12 @@ def main():
 
             elapsed = time.perf_counter() - started
             if elapsed - last_heartbeat >= config.HEARTBEAT_SECONDS:
+                window = elapsed - last_heartbeat
                 write_heartbeat(args.gate, args.source, frame_index,
-                                frame_index / max(elapsed, 1e-6),
+                                (frame_index - frames_at_last_beat) / max(window, 1e-6),
                                 line_zone.in_count, line_zone.out_count)
                 last_heartbeat = elapsed
+                frames_at_last_beat = frame_index
 
             if args.no_show and writer is None:
                 continue
@@ -222,9 +246,10 @@ def main():
         print("\nstopped by user")
     finally:
         elapsed = time.perf_counter() - started
+        window = elapsed - last_heartbeat
         write_heartbeat(args.gate, args.source, frame_index,
-                        frame_index / max(elapsed, 1e-6),
-                        line_zone.in_count, line_zone.out_count)
+                        (frame_index - frames_at_last_beat) / max(window, 1e-6),
+                        line_zone.in_count, line_zone.out_count, running=False)
         handle.close()
         if writer is not None:
             writer.release()

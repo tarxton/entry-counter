@@ -18,6 +18,7 @@ second slash (//stream1) if you must run it there.
 import argparse
 import os
 import time
+from urllib.parse import quote
 
 # Must be set before the first capture is created. TCP transport matters over
 # wifi: the UDP default silently drops packets under congestion, which arrives
@@ -46,7 +47,10 @@ COMMON_PATHS = [
 
 
 def build_url(host, port, user, password, path):
-    credentials = f"{user}:{password}@" if user else ""
+    # Percent-encode the credentials. Vendor default passwords routinely contain
+    # @ : / #, any of which silently reshapes the URL: "p@ss" makes everything
+    # after the @ the hostname, so every path fails for no visible reason.
+    credentials = f"{quote(user, safe='')}:{quote(password, safe='')}@" if user else ""
     return f"rtsp://{credentials}{host}:{port}{path}"
 
 

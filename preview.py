@@ -81,7 +81,12 @@ def main():
     if not cap.isOpened():
         raise SystemExit(f"could not open source: {args.source}")
 
-    is_file = not isinstance(source, int) and not str(source).startswith(("rtsp", "http"))
+    is_file = not config.is_live(source)
+    if not is_file:
+        # Without this the backend queues frames faster than this loop drains
+        # them and the preview drifts steadily behind, so the line gets placed
+        # against a view that is seconds stale.
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     ok, frame = cap.read()
     if not ok:
         raise SystemExit("could not read a frame from the source")
@@ -95,8 +100,13 @@ def main():
     cv2.setMouseCallback("preview", on_mouse)
 
     while True:
-        if not is_file:                      # live source: keep pulling frames
-            ok, latest = cap.read()
+        if not is_file:
+            # Drain whatever the backend has queued and keep only the newest
+            # frame; CAP_PROP_BUFFERSIZE is advisory and some backends ignore it.
+            for _ in range(4):
+                if not cap.grab():
+                    break
+            ok, latest = cap.retrieve()
             if ok:
                 frame = latest
 

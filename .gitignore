@@ -14,3 +14,6 @@ out_*.mp4
 # runtime state: per-gate lines, event logs, heartbeats
 lines/
 data/
+
+# camera stills written by probe.py
+probe_*.jpg

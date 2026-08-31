@@ -31,14 +31,41 @@ def read_gate(path):
     return gate, ins, outs, last
 
 
-def read_heartbeat(gate, now):
-    """Return (age_seconds, fps) for a gate, or (None, None) if never seen."""
+def read_heartbeat(gate):
+    """Return the heartbeat dict, None if absent, or "unreadable" if malformed.
+
+    Never raises: a heartbeat read that lands mid-write would otherwise kill
+    the --watch loop and stop the monitoring this tool exists to provide.
+    """
     path = config.heartbeat_file(gate)
     if not path.exists():
-        return None, None
-    beat = json.loads(path.read_text())
-    updated = datetime.datetime.fromisoformat(beat["updated"])
-    return (now - updated).total_seconds(), beat.get("fps")
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return "unreadable"
+
+
+def describe_health(beat, now):
+    """Turn a heartbeat into (health text, fps)."""
+    if beat is None:
+        return "never started", None
+    if beat == "unreadable":
+        return "heartbeat unreadable, retrying", None
+
+    fps = beat.get("fps")
+    try:
+        age = (now - datetime.datetime.fromisoformat(beat["updated"])).total_seconds()
+    except (KeyError, TypeError, ValueError):
+        return "heartbeat malformed", fps
+
+    if not beat.get("running", True):
+        return f"STOPPED - exited {int(age)}s ago", fps
+    if age > config.STALE_AFTER_SECONDS:
+        # The counter process is gone, or its camera went unresponsive and the
+        # loader is feeding it black frames. Either way it is not counting.
+        return f"STALE - no heartbeat for {int(age)}s", fps
+    return f"ok, last beat {int(age)}s ago", fps
 
 
 def render():
@@ -57,16 +84,7 @@ def render():
         gate, ins, outs, last = read_gate(path)
         total_in += ins
         total_out += outs
-        age, fps = read_heartbeat(gate, now)
-
-        if age is None:
-            health = "never started"
-        elif age > config.STALE_AFTER_SECONDS:
-            # The counter process is gone, or its camera went unresponsive and
-            # the loader is feeding it black frames. Either way it is not counting.
-            health = f"STALE - no heartbeat for {int(age)}s"
-        else:
-            health = f"ok, last beat {int(age)}s ago"
+        health, fps = describe_health(read_heartbeat(gate), now)
 
         print(f"{gate:<12}{ins:>7}{outs:>7}{ins - outs:>9}"
               f"{(fps if fps is not None else 0):>7.1f}  {health}")
