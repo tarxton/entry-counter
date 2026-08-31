@@ -5,8 +5,18 @@ event log and its own heartbeat, and the processes never touch the same file.
 """
 
 import json
+import os
 from collections import namedtuple
 from pathlib import Path
+
+# Read by OpenCV's FFMPEG backend when a capture is created. TCP transport
+# matters over wifi: the UDP default silently drops packets under congestion,
+# which arrives as torn frames and phantom detections rather than as an error.
+# The timeout keys (microseconds) stop a dead camera hanging the process
+# forever; both spellings are set because ffmpeg renamed stimeout to timeout,
+# and an unused key is simply ignored.
+os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS",
+                      "rtsp_transport;tcp|timeout;5000000|stimeout;5000000")
 
 ROOT = Path(__file__).parent
 FOOTAGE_DIR = ROOT / "footage"

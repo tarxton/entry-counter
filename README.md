@@ -35,7 +35,28 @@ close together; an angled or eye-level view undercounts as soon as bodies
 overlap. Aim for at least 15 fps at 720p, and enough light (or IR) that people
 are clearly visible.
 
-### 2. Check the machine can keep up
+### 2. Find the camera's stream
+
+Vendors use different RTSP paths and rarely document them. `probe.py` tries the
+common ones and reports what answers:
+
+```bash
+.venv/Scripts/python probe.py --host 192.168.1.50 --user admin --password secret
+```
+
+It prints resolution and **measured** frame rate per working path, saves a still
+so you can check the aim, and prints the `--source` value to use. Measured fps is
+the number that matters — a camera advertising 30 fps often delivers far less
+over wifi, and anything under ~15 is too slow.
+
+RTSP frequently has to be switched on in the vendor's app first; some cameras
+require creating a separate camera account before it works at all.
+
+Streams are opened over TCP rather than the UDP default. Under wifi congestion
+UDP silently drops packets, which shows up as torn frames and phantom
+detections rather than as an error.
+
+### 3. Check the machine can keep up
 
 Every stream must sustain roughly 15 fps of inference. Below that, a walking
 person spans too few frames to be counted reliably. Benchmark with as many
@@ -48,7 +69,7 @@ parallel streams as you have cameras, using a recording from one of them:
 If it reports `TOO SLOW`, use a CUDA build of torch on an NVIDIA GPU, run one
 machine per gate, or reduce the number of streams per machine.
 
-### 3. Place a counting line per gate
+### 4. Place a counting line per gate
 
 Each gate is identified by a name you choose. Run the placement tool against
 that gate's camera:
@@ -163,6 +184,8 @@ and timestamps are stored; no video is written unless `--save-video` is passed.
 | People missed entirely | `--model yolo11s.pt` |
 | Counting degrades when people bunch up | Camera is too low or too angled; mount higher and truly top-down |
 | Too slow | Keep `yolo11n.pt`, use a GPU, or fewer streams per machine |
+| Torn frames or phantom detections on wifi | Confirm TCP transport; prefer ethernet |
+| Counts stop after the camera is moved | The line is in pixels: disable pan-tilt tracking and patrol, then re-place the line |
 
 ### Dropped detections mid-crossing
 
@@ -202,6 +225,7 @@ Two settings reduce the dropouts themselves:
 
 | File | Purpose |
 |---|---|
+| `probe.py` | Find a camera's RTSP path and measure its real frame rate. |
 | `preview.py` | Place a gate's counting line. Requires only opencv. |
 | `count.py` | One gate: detect, track, count, log crossings, emit heartbeat. |
 | `status.py` | Aggregate all gates into totals and health. |
