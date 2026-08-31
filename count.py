@@ -4,8 +4,11 @@ One process per camera. Each crossing is appended to data/events_<gate>.csv as
 its own row, so occupancy is a query over the log rather than a number held in
 memory -- restarting mid-event loses nothing.
 
-    python count.py --gate north --source rtsp://user:pass@10.0.0.5:554/stream
-    python count.py --gate test --source footage/entrance.mp4 --save-video
+    python count.py --source rtsp://user:pass@10.0.0.5:554/stream1
+    python count.py --source recording.mp4 --save-video
+
+A second camera is another process with a different --gate; the name keys the
+line, the event log and the heartbeat so the two never touch the same file.
 """
 
 import argparse
@@ -90,9 +93,12 @@ def write_heartbeat(gate, source, frames, fps, in_count, out_count):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--gate", default="test", help="gate name; keys the line, log and heartbeat")
+    ap.add_argument("--gate", default="main", help="gate name; keys the line, log and heartbeat")
     ap.add_argument("--source", default="0", help="video file, webcam index, or stream URL")
     ap.add_argument("--model", default=config.MODEL)
+    ap.add_argument("--device", default=None,
+                    help="cpu, mps (Apple Silicon), or a CUDA index like 0. "
+                         "Default lets ultralytics choose.")
     ap.add_argument("--conf", type=float, default=config.CONF,
                     help="detection floor; keep at or below the tracker's track_low_thresh")
     ap.add_argument("--min-crossing", type=int, default=config.MIN_CROSSING,
@@ -169,7 +175,8 @@ def main():
         # newest frame and reconnects a dropped stream, so no grabber thread here.
         for result in model.track(source=source, stream=True, persist=True,
                                   conf=args.conf, tracker=str(config.ROOT / config.TRACKER),
-                                  classes=[config.PERSON_CLASS], verbose=False):
+                                  classes=[config.PERSON_CLASS], device=args.device,
+                                  verbose=False):
             frame_index += 1
             detections = with_tracker_ids(sv.Detections.from_ultralytics(result))
             crossed_in, crossed_out = line_zone.trigger(detections)

@@ -3,8 +3,8 @@
 Only needs opencv, so you can aim the camera and set the line while the
 ultralytics/torch install is still downloading.
 
-    python preview.py --gate north --source rtsp://user:pass@10.0.0.5:554/stream
-    python preview.py --gate test --source footage/entrance.mp4
+    python preview.py --source rtsp://user:pass@10.0.0.5:554/stream1
+    python preview.py --source recording.mp4
 
 Controls
     left click x2   set the line from point A to point B
@@ -72,7 +72,7 @@ def draw(frame, start, end):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--gate", default="test", help="gate name; the line is saved as lines/<gate>.json")
+    ap.add_argument("--gate", default="main", help="gate name; the line is saved as lines/<gate>.json")
     ap.add_argument("--source", default="0", help="video file, webcam index, or stream URL")
     args = ap.parse_args()
 
